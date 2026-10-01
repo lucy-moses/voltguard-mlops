@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+# Secrets / local env - NEVER commit
+.env
+*.pem
+.dvc/config.local
+# MLflow local store (tracking DB + artifacts; use a remote MLflow server to share)
+mlflow/*
+!mlflow/.gitkeep
+mlruns/
+# Data & model artifacts are versioned by DVC, not Git (DVC adds its own per-directory .gitignore entries)
+/data/raw/*
+/data/interim/*
+/data/processed/*
+!data/README.md
+/artifacts/models/*
+!artifacts/models/.gitkeep
+/artifacts/preprocessors/*
+!artifacts/preprocessors/.gitkeep
+# metrics JSON files ARE committed (small, diffable):  artifacts/metrics/*.json
+
+# DVC local internals
+.dvc/tmp/
+.dvc/cache/

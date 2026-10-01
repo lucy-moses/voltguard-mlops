@@ -1,0 +1,79 @@
+# Pipeline (Part 1 of the architecture): Raw data -> Preprocessing -> Experiments -> Compare -> Select -> Registry
+stages:
+  data_ingestion:
+    cmd: python -m src.pipeline.stages data_ingestion
+    deps:
+      - data/raw
+      - src/data/ingest.py
+      - src/pipeline/stages.py
+    params:
+      - ingest
+    outs:
+      - data/interim/cycles.csv
+
+  preprocess:
+    cmd: python -m src.pipeline.stages preprocess
+    deps:
+      - data/interim/cycles.csv
+      - src/data
+      - src/features
+      - src/pipeline/preprocess.py
+    params:
+      - features
+      - validation
+      - split
+    outs:
+      - data/processed/train.csv
+      - data/processed/val.csv
+      - data/processed/test.csv
+      - artifacts/preprocessors/preprocessor.joblib
+    metrics:
+      - artifacts/metrics/preprocess_report.json:
+          cache: false
+
+  train:                      # "Experiments": every candidate model is tracked in MLflow
+    cmd: python -m src.pipeline.stages train
+    deps:
+      - data/processed/train.csv
+      - data/processed/val.csv
+      - artifacts/preprocessors/preprocessor.joblib
+      - src/models/train.py
+      - src/models/metrics.py
+    params:
+      - seed
+      - train
+    outs:
+      - artifacts/models/candidates
+    metrics:
+      - artifacts/metrics/train_metrics.json:
+          cache: false
+
+  evaluate:                   # "Compare metrics" + "Best model selected" (rule in params.yaml: selection)
+    cmd: python -m src.pipeline.stages evaluate
+    deps:
+      - artifacts/models/candidates
+      - artifacts/metrics/train_metrics.json
+      - artifacts/preprocessors/preprocessor.joblib
+      - data/processed/test.csv
+      - src/models/evaluate.py
+      - src/models/select.py
+    params:
+      - selection
+      - features.nominal_capacity_ah
+      - features.eol_soh_percent
+    outs:
+      - artifacts/models/voltguard_bundle.joblib
+    metrics:
+      - artifacts/metrics/evaluation.json:
+          cache: false
+
+  register_model:             # "Model registry" (MLflow) + "Model artifact stored/versioned remotely" (DVC)
+    cmd: python -m src.pipeline.stages register_model
+    deps:
+      - artifacts/models/voltguard_bundle.joblib
+      - artifacts/metrics/evaluation.json
+      - src/models/registry.py
+    params:
+      - registry
+    outs:
+      - artifacts/models/manifest.json

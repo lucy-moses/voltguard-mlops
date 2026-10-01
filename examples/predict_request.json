@@ -1,0 +1,14 @@
+{
+  "cycle_number": 120,
+  "ambient_temperature": 24.0,
+  "voltage_mean": 3.45,
+  "voltage_std": 0.25,
+  "voltage_min": 2.70,
+  "voltage_range": 1.45,
+  "current_mean": -2.0,
+  "temperature_mean": 33.0,
+  "temperature_max": 38.0,
+  "temperature_rise": 8.0,
+  "discharge_duration": 3000.0,
+  "charge_duration": 9500.0
+}

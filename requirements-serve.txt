@@ -1,0 +1,13 @@
+# Runtime dependencies for the API container (must match training versions for pickled models)
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.1
+xgboost==2.1.1
+joblib==1.4.2
+PyYAML==6.0.2
+fastapi==0.115.0
+pydantic==2.9.2
+uvicorn[standard]==0.30.6
+prometheus-client==0.21.0
+dvc[s3]==3.55.2
+pathspec==0.12.1   # dvc 3.55 breaks with pathspec>=1.0

@@ -1,0 +1,21 @@
+# Local development. Uses the artifacts already produced by `dvc repro` (MODEL_SOURCE=local),
+# or set MODEL_SOURCE=dvc + AWS credentials in .env to test the same path EC2 uses.
+services:
+  api:
+    build: .
+    image: voltguard-api:local
+    ports: ["8000:8000"]
+    env_file: [.env]
+    environment:
+      MODEL_SOURCE: ${MODEL_SOURCE:-local}
+      ARTIFACT_DIR: /app/artifacts/models
+    volumes:
+      - ./artifacts/models:/app/artifacts/models
+    restart: unless-stopped
+
+  mlflow-ui:            # optional: docker compose --profile tracking up mlflow-ui
+    profiles: ["tracking"]
+    image: python:3.11-slim
+    command: sh -c "pip install -q mlflow==2.16.2 SQLAlchemy==2.0.35 && mlflow ui --backend-store-uri sqlite:////mlflow/mlflow.db --host 0.0.0.0 --port 5000"
+    ports: ["5000:5000"]
+    volumes: ["./mlflow:/mlflow"]

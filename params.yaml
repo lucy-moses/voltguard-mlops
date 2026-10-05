@@ -7,7 +7,7 @@ ingest:
 
 features:
   nominal_capacity_ah: 2.0     # NASA cells are rated 2 Ah; SOH = capacity / nominal * 100
-  eol_soh_percent: 70.0        # End-of-life definition: first cycle with SOH <= 70 %
+  eol_soh_percent: 72.0        # End-of-life definition: first cycle with SOH <= 70 %
 
 validation:
   voltage_range: [0.0, 5.0]

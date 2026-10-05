@@ -1,0 +1,204 @@
+{
+  "rul": {
+    "gradient_boosting": {
+      "artifact": "rul_gradient_boosting.joblib",
+      "params": {
+        "learning_rate": 0.05,
+        "max_depth": 3,
+        "n_estimators": 300,
+        "subsample": 0.8
+      },
+      "run_id": "599c3e65d14c47568a633dce9734cd85",
+      "train": {
+        "mae": 0.17748460101330474,
+        "r2": 0.9999487661787211,
+        "rmse": 0.25135957039179296
+      },
+      "training_time_s": 1.1091452001128346,
+      "val": {
+        "mae": 30.83874592272709,
+        "r2": 0.4417575306340886,
+        "rmse": 34.71216483431775
+      }
+    },
+    "linear_regression": {
+      "artifact": "rul_linear_regression.joblib",
+      "params": {},
+      "run_id": "9fdbe4ae70394252ad8c9fee75258df3",
+      "train": {
+        "mae": 4.288856250103149,
+        "r2": 0.9757994384049072,
+        "rmse": 5.4629820442838355
+      },
+      "training_time_s": 0.002781299874186516,
+      "val": {
+        "mae": 38.64336584002821,
+        "r2": 0.2650993289176379,
+        "rmse": 39.82764109066714
+      }
+    },
+    "random_forest": {
+      "artifact": "rul_random_forest.joblib",
+      "params": {
+        "max_depth": 12,
+        "min_samples_leaf": 2,
+        "n_estimators": 300,
+        "n_jobs": -1
+      },
+      "run_id": "1b717e64d82848668139f8ae2952f161",
+      "train": {
+        "mae": 0.5097466355018435,
+        "r2": 0.9994368390797184,
+        "rmse": 0.8333612564170692
+      },
+      "training_time_s": 0.9404321999754757,
+      "val": {
+        "mae": 30.235317697954603,
+        "r2": 0.47104060748921095,
+        "rmse": 33.78947386049896
+      }
+    },
+    "ridge": {
+      "artifact": "rul_ridge.joblib",
+      "params": {
+        "alpha": 1.0
+      },
+      "run_id": "901f5290ecc046489d96cd2cb1ff2263",
+      "train": {
+        "mae": 4.527175125224687,
+        "r2": 0.9742943663918575,
+        "rmse": 5.630295740573003
+      },
+      "training_time_s": 0.0030927001498639584,
+      "val": {
+        "mae": 35.001800673581556,
+        "r2": 0.39652605934273033,
+        "rmse": 36.09105050952198
+      }
+    },
+    "xgboost": {
+      "artifact": "rul_xgboost.joblib",
+      "params": {
+        "colsample_bytree": 0.8,
+        "learning_rate": 0.05,
+        "max_depth": 4,
+        "n_estimators": 400,
+        "n_jobs": 2,
+        "subsample": 0.8
+      },
+      "run_id": "104134a42ff44c969012f98b4cc22e61",
+      "train": {
+        "mae": 0.060009257672845706,
+        "r2": 0.9999941090332163,
+        "rmse": 0.08523350302105442
+      },
+      "training_time_s": 0.4700355001259595,
+      "val": {
+        "mae": 29.236656455766585,
+        "r2": 0.5092483852601841,
+        "rmse": 32.54626314091934
+      }
+    }
+  },
+  "soh": {
+    "gradient_boosting": {
+      "artifact": "soh_gradient_boosting.joblib",
+      "params": {
+        "learning_rate": 0.05,
+        "max_depth": 3,
+        "n_estimators": 300,
+        "subsample": 0.8
+      },
+      "run_id": "abd797d3184b45a6b0f2402a1774a267",
+      "train": {
+        "mae": 0.08852933081088037,
+        "r2": 0.9998993187242807,
+        "rmse": 0.11191135473662162
+      },
+      "training_time_s": 1.2015217000152916,
+      "val": {
+        "mae": 1.536571048086948,
+        "r2": 0.9431917549118309,
+        "rmse": 1.9123667670595692
+      }
+    },
+    "linear_regression": {
+      "artifact": "soh_linear_regression.joblib",
+      "params": {},
+      "run_id": "74cb5de5cab34f06984898d7be587fb9",
+      "train": {
+        "mae": 0.11798644437710462,
+        "r2": 0.9997784041886136,
+        "rmse": 0.1660277076933341
+      },
+      "training_time_s": 0.015158700058236718,
+      "val": {
+        "mae": 1.0703251080712939,
+        "r2": 0.9807224079750758,
+        "rmse": 1.1140171937326733
+      }
+    },
+    "random_forest": {
+      "artifact": "soh_random_forest.joblib",
+      "params": {
+        "max_depth": 12,
+        "min_samples_leaf": 2,
+        "n_estimators": 300,
+        "n_jobs": -1
+      },
+      "run_id": "86470e21c09a4011bf72a11f6952617f",
+      "train": {
+        "mae": 0.14046451009898128,
+        "r2": 0.9996767866088053,
+        "rmse": 0.20051389402113937
+      },
+      "training_time_s": 0.9038356000091881,
+      "val": {
+        "mae": 1.7276561809417927,
+        "r2": 0.925606231772258,
+        "rmse": 2.1884356453426386
+      }
+    },
+    "ridge": {
+      "artifact": "soh_ridge.joblib",
+      "params": {
+        "alpha": 1.0
+      },
+      "run_id": "452df6f2810c4980af3a6765ab6a60fb",
+      "train": {
+        "mae": 0.1652258760039659,
+        "r2": 0.999568273262948,
+        "rmse": 0.23174174400278458
+      },
+      "training_time_s": 0.01103210006840527,
+      "val": {
+        "mae": 1.175265847686772,
+        "r2": 0.9762596636778587,
+        "rmse": 1.2362574873041066
+      }
+    },
+    "xgboost": {
+      "artifact": "soh_xgboost.joblib",
+      "params": {
+        "colsample_bytree": 0.8,
+        "learning_rate": 0.05,
+        "max_depth": 4,
+        "n_estimators": 400,
+        "n_jobs": 2,
+        "subsample": 0.8
+      },
+      "run_id": "56bcb2359ddd4dd383271bc7c4f8f6fd",
+      "train": {
+        "mae": 0.03197677407760503,
+        "r2": 0.9999870074459437,
+        "rmse": 0.040201944937083116
+      },
+      "training_time_s": 0.5364867001771927,
+      "val": {
+        "mae": 1.379172416087243,
+        "r2": 0.9568460173034039,
+        "rmse": 1.6667710278002734
+      }
+    }
+  }
+}

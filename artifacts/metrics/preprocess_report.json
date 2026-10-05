@@ -1,0 +1,31 @@
+{
+  "features": [
+    "cycle_number",
+    "ambient_temperature",
+    "voltage_mean",
+    "voltage_std",
+    "voltage_min",
+    "voltage_range",
+    "current_mean",
+    "temperature_mean",
+    "temperature_max",
+    "temperature_rise",
+    "discharge_duration",
+    "charge_duration"
+  ],
+  "rows": {
+    "test": 132,
+    "train": 336,
+    "val": 168
+  },
+  "validation": {
+    "capacity_out_of_range": 0,
+    "duplicates": 0,
+    "n_batteries": 4,
+    "n_rows": 636,
+    "non_positive_duration": 0,
+    "null_charge_duration": 3,
+    "temperature_out_of_range": 0,
+    "voltage_out_of_range": 0
+  }
+}

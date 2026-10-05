@@ -1,0 +1,46 @@
+{
+  "aliases": [
+    "candidate",
+    "champion"
+  ],
+  "bundle_file": "voltguard_bundle.joblib",
+  "bundle_sha256": "dc4b09dcb037327405f7834c9713f1768616f0c8a1ef8ea90d98e15541a5b721",
+  "features": [
+    "cycle_number",
+    "ambient_temperature",
+    "voltage_mean",
+    "voltage_std",
+    "voltage_min",
+    "voltage_range",
+    "current_mean",
+    "temperature_mean",
+    "temperature_max",
+    "temperature_rise",
+    "discharge_duration",
+    "charge_duration"
+  ],
+  "metrics": {
+    "rul_test_mae": 12.783402276761604,
+    "rul_test_r2": 0.752342723683948,
+    "rul_test_rmse": 13.658638441256429,
+    "rul_val_mae": 29.236656455766585,
+    "rul_val_r2": 0.5092483852601841,
+    "rul_val_rmse": 32.54626314091934,
+    "soh_test_mae": 0.2967244721943836,
+    "soh_test_r2": 0.9977040278792795,
+    "soh_test_rmse": 0.36966664097229973,
+    "soh_val_mae": 1.0703251080712939,
+    "soh_val_r2": 0.9807224079750758,
+    "soh_val_rmse": 1.1140171937326733
+  },
+  "model_name": "VoltGuard-Battery-RUL",
+  "model_version": "2",
+  "previous_champion_version": "1",
+  "promoted": true,
+  "registered_at": "2026-10-05T04:23:40.795199+00:00",
+  "run_id": "2182d8bd7518465ba0bde86ac775305d",
+  "selected_models": {
+    "rul": "xgboost",
+    "soh": "linear_regression"
+  }
+}

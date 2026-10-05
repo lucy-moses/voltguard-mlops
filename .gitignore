@@ -21,6 +21,7 @@ mlruns/
 !data/README.md
 /artifacts/models/*
 !artifacts/models/.gitkeep
+!artifacts/models/manifest.json
 /artifacts/preprocessors/*
 !artifacts/preprocessors/.gitkeep
 # metrics JSON files ARE committed (small, diffable):  artifacts/metrics/*.json

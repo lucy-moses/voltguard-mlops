@@ -28,3 +28,4 @@ mlruns/
 # DVC local internals
 .dvc/tmp/
 .dvc/cache/
+!artifacts/models/manifest.json

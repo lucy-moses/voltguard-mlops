@@ -225,5 +225,5 @@ stages:
     outs:
     - path: artifacts/models/manifest.json
       hash: md5
-      md5: 3488c3b49a30000b665a15f5794405b8
-      size: 1297
+      md5: 7ef3cb684f57aa4f61525ce538d50912
+      size: 1313

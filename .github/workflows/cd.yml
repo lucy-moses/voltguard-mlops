@@ -30,11 +30,15 @@ jobs:
         run: ruff check .
       - name: Unit tests
         run: pytest -q
+      - name: Pipeline smoke test (synthetic data)
+        run: python scripts/smoke_test.py
 
   pipeline:
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      model_version: ${{ steps.verify.outputs.model_version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -50,19 +54,42 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
       - name: Point DVC at the S3 remote
-        run: |
-          dvc remote modify --local storage url "s3://${{ secrets.DVC_S3_BUCKET }}/voltguard"
-          dvc remote modify --local storage region "${{ secrets.AWS_REGION }}"
-      - name: Pull raw data from DVC remote
-        run: dvc pull data/raw.dvc
-      - name: Run DVC pipeline (ingest, preprocess, train, evaluate, register)
         env:
-          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}   # optional; empty -> local sqlite on the runner
-        run: dvc repro
-      - name: Quality gate (fail build if test RMSE exceeds thresholds in params.yaml)
+          DVC_S3_BUCKET: ${{ secrets.DVC_S3_BUCKET }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          : "${DVC_S3_BUCKET:?DVC_S3_BUCKET secret is required}" "${AWS_REGION:?AWS_REGION secret is required}"
+          dvc remote modify --local storage url "s3://${DVC_S3_BUCKET}/voltguard"
+          dvc remote modify --local storage region "${AWS_REGION}"
+      - name: Pull all locked DVC outputs
+        run: dvc pull
+      - name: Run DVC pipeline through evaluation
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        run: dvc repro evaluate
+      - name: Model quality gate (run before MLflow registration)
         run: |
           python scripts/quality_gate.py
           dvc metrics show
+      - name: Require persistent MLflow if model registration would rerun
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        run: |
+          plan="$(dvc repro register_model --dry 2>&1)"
+          printf '%s\n' "$plan"
+          if [[ -z "$MLFLOW_TRACKING_URI" ]] && ! grep -Fq "Stage 'register_model' didn't change, skipping" <<< "$plan"; then
+            echo "Model registration would run, but MLFLOW_TRACKING_URI is unset. Configure a persistent registry before registering or deploying a new model."
+            exit 1
+          fi
+      - name: Register or reuse the evaluated model
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        run: dvc repro register_model
+      - name: Verify deployment manifest, lockfile, and model bundle
+        id: verify
+        run: |
+          python scripts/verify_deployment_artifacts.py
+          echo "model_version=$(python -c 'import json; print(json.load(open("artifacts/models/manifest.json", encoding="utf-8"))["model_version"])')" >> "$GITHUB_OUTPUT"
       - name: Push model artifact and intermediate outputs to DVC remote
         run: dvc push
       - name: Upload pipeline results for later jobs
@@ -80,6 +107,7 @@ jobs:
     timeout-minutes: 30
     outputs:
       registry: ${{ steps.login-ecr.outputs.registry }}
+      model_version: ${{ needs.pipeline.outputs.model_version }}
     steps:
       - uses: actions/checkout@v4
       - name: Fetch the dvc.lock produced by this run (pins the exact model version baked into the image)
@@ -130,11 +158,21 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
           DVC_REMOTE_URL: s3://${{ secrets.DVC_S3_BUCKET }}/voltguard
           API_KEY: ${{ secrets.API_KEY }}
+          HOST_PORT: "8000"
+          EXPECTED_MODEL_VERSION: ${{ needs.build-push.outputs.model_version }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: AWS_REGION,ECR_REGISTRY,ECR_REPOSITORY,IMAGE_TAG,DVC_REMOTE_URL,API_KEY
+          envs: AWS_REGION,ECR_REGISTRY,ECR_REPOSITORY,IMAGE_TAG,DVC_REMOTE_URL,API_KEY,HOST_PORT,EXPECTED_MODEL_VERSION
           script: bash /tmp/voltguard/deploy.sh
       - name: Smoke-test the public endpoint
-        run: curl --fail --retry 10 --retry-delay 6 --retry-connrefused "http://${{ secrets.EC2_HOST }}/health"
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EXPECTED_MODEL_VERSION: ${{ needs.build-push.outputs.model_version }}
+        run: |
+          BASE_URL="http://${EC2_HOST}:8000"
+          curl --fail --retry 30 --retry-delay 6 --retry-connrefused "${BASE_URL}/health" \
+            | jq -e --arg version "${EXPECTED_MODEL_VERSION}" '.status == "ok" and .model_loaded == true and .model_version == $version'
+          curl --fail --retry 30 --retry-delay 6 --retry-connrefused "${BASE_URL}/model-info" \
+            | jq -e --arg version "${EXPECTED_MODEL_VERSION}" '.model_version == $version and .alias == "champion" and (.aliases_in_manifest | index("champion") != null)'

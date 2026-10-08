@@ -8,9 +8,9 @@
 ## `cd.yml` step by step
 
 1. **test** - checkout, Python 3.11, install, `ruff`, `pytest`.
-2. **pipeline** - configure AWS, point DVC at `s3://$DVC_S3_BUCKET/voltguard`, `dvc pull data/raw.dvc`, **`dvc repro`**, **quality gate** (`scripts/quality_gate.py` fails the run if test RMSE exceeds `params.yaml: quality_gate`), `dvc metrics show`, **`dvc push`** (model artifact -> S3), upload `dvc.lock` + metrics + manifest as a workflow artifact.
-3. **build-push** - download that `dvc.lock` (so the image is pinned to the model just produced), log in to ECR, `docker build`, push `:<git sha>` **and** `:latest`.
-4. **deploy** - copy `deploy.sh` to EC2, run it over SSH with the image tag `= github.sha`; it logs in to ECR, pulls the image, starts the container (which pulls the model from S3 via DVC), waits for `/health`, rolls back to the previous image if unhealthy. A final `curl /health` from the runner confirms public reachability.
+2. **pipeline** - configure AWS, point DVC at `s3://$DVC_S3_BUCKET/voltguard`, pull all outputs described by the committed `dvc.lock`, then run **`dvc repro evaluate`**. With unchanged inputs, this reuses the locked outputs. The quality gate runs before MLflow registration, so a rejected evaluation cannot create/promote a model version. Before registration, a DVC dry run checks whether the registry stage needs to execute; if it does, a persistent `MLFLOW_TRACKING_URI` is required. A release check verifies the manifest hash matches `dvc.lock`, verifies the bundle SHA-256, and requires a promoted `champion` alias. Finally, `dvc push` publishes any new outputs and uploads this run's lock + manifest.
+3. **build-push** - download that exact `dvc.lock`, log in to ECR, build the image from it, and push `:<git sha>` **and** `:latest`. Deployment uses only the immutable commit SHA tag.
+4. **deploy** - copy `scripts/deploy.sh` to EC2 and run it over SSH with the exact image SHA and expected model version. The EC2 instance role supplies ECR/S3 read access; the script publishes host port **8000** to container port **8000**, waits for `/health` and `/model-info` to report the expected champion version, and restores the previous image if startup or verification fails. The runner checks the public `http://$EC2_HOST:8000` endpoints.
 
 Deployments are always by immutable SHA tag - `latest` is only a convenience.
 
@@ -18,22 +18,26 @@ Deployments are always by immutable SHA tag - `latest` is only a convenience.
 
 | Secret | Purpose |
 |---|---|
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | CI IAM user (S3 read/write on the DVC bucket, ECR push) |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | GitHub Actions CI IAM user (S3 list/read/write for DVC, ECR push; no EC2 keys) |
 | `AWS_REGION` | e.g. `ap-south-1` |
 | `DVC_S3_BUCKET` | bucket name only (no `s3://`) |
 | `ECR_REPOSITORY` | e.g. `voltguard-api` |
 | `EC2_HOST` | public DNS/IP (Elastic IP recommended) |
-| `EC2_USERNAME` | e.g. `ec2-user` |
+| `EC2_USERNAME` | Ubuntu EC2 login user (commonly `ubuntu`) |
 | `EC2_SSH_KEY` | private key (PEM contents) for that user |
 | `API_KEY` | (optional) value clients must send as `X-API-Key` |
-| `MLFLOW_TRACKING_URI` | (optional) remote MLflow server |
+| `MLFLOW_TRACKING_URI` | Needed only when DVC determines `register_model` must execute. Configure a persistent remote URI; a fresh runner's SQLite registry is temporary and cannot preserve champion history. The workflow fails closed if registration would run without this secret. |
+
+GitHub Actions secret names cannot be read through the repository tools available in this session. Configure the names above; `API_KEY` is optional. `AWS_REGION` is referenced as a secret by the current workflow, even though it is configuration rather than a secret.
+
+GitHub Actions currently uses long-lived AWS access-key secrets because that is the existing authentication design. The EC2 host uses the `VoltGuardEC2S3Role` instance profile for ECR/S3 read access and has no AWS keys in the deployment. GitHub OIDC is not enabled; it requires an AWS IAM role trust policy for this repository and replacing the access-key configuration with that role ARN.
 
 ## Prerequisites before the first run
 
-`data/raw.dvc` committed and data pushed; ECR repo + EC2 host + IAM roles created (`docs/aws-deployment.md`); an initial `dvc.lock` is *not* required in Git because CI regenerates it.
+`data/raw.dvc` and the current `dvc.lock` committed, and their referenced DVC outputs pushed to S3; ECR repo + EC2 host + IAM roles created (`docs/aws-deployment.md`). The lockfile must be present so CI and the Docker image pin the same manifest/model release.
 
 ## Security notes / trade-offs
 
-* SSH from GitHub-hosted runners needs port 22 reachable from GitHub's IP ranges (which change). Options: open 22 broadly with key-only auth (acceptable for a course project, weaker), or switch the deploy job to AWS SSM Run Command. Prefer GitHub OIDC roles over long-lived access keys for anything beyond a course project.
+* SSH from GitHub-hosted runners needs port 22 reachable from the runner (GitHub-hosted runner IPs change). Keep SSH key-only and restrict source IPs where practical, or later migrate deployment to AWS SSM. Prefer GitHub OIDC once the AWS trust policy is configured.
 * Secrets are never echoed; they are passed via `env`. Third-party actions are pinned to major/minor tags - pin to commit SHAs for stricter supply-chain control.
-* This workflow has **not been executed** by me (no AWS account/GitHub repo available). YAML syntax was validated and the underlying commands (`dvc repro`, `dvc push/pull`, bootstrap, API) were run locally against a local remote.
+* This audit did not execute the workflow or deploy to AWS. Repository secret presence and live EC2 behavior could not be queried here.

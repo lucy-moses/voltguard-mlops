@@ -16,6 +16,12 @@ def main() -> int:
     ok = True
     for target, key in checks:
         if target not in ev:
+            print(f"FAIL  {target} test RMSE is missing from evaluation.json")
+            ok = False
+            continue
+        if "rmse" not in ev[target]:
+            print(f"FAIL  {target} test RMSE is missing from evaluation.json")
+            ok = False
             continue
         rmse = ev[target]["rmse"]
         passed = rmse <= q[key]

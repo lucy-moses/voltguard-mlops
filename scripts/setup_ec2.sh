@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# One-time EC2 host preparation (Amazon Linux 2023). Run as ec2-user with sudo.
+# One-time EC2 host preparation (Ubuntu). Run as the EC2 login user with sudo.
 set -euo pipefail
-sudo dnf install -y docker
+sudo apt-get update
+sudo apt-get install -y docker.io awscli
 sudo systemctl enable --now docker
 sudo usermod -aG docker "$USER"
-command -v aws >/dev/null || sudo dnf install -y awscli
-echo "Re-login so the docker group applies. Then attach an IAM instance profile (see docs/aws-deployment.md)."
+echo "Re-login so the docker group applies. Attach the VoltGuardEC2S3Role instance profile (see docs/aws-deployment.md)."

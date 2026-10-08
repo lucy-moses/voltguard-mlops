@@ -14,21 +14,26 @@
 
 Deployments are always by immutable SHA tag - `latest` is only a convenience.
 
-## GitHub Secrets
+## Required GitHub Secrets
 
 | Secret | Purpose |
 |---|---|
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | GitHub Actions CI IAM user (S3 list/read/write for DVC, ECR push; no EC2 keys) |
-| `AWS_REGION` | e.g. `ap-south-1` |
 | `DVC_S3_BUCKET` | bucket name only (no `s3://`) |
 | `ECR_REPOSITORY` | e.g. `voltguard-api` |
 | `EC2_HOST` | public DNS/IP (Elastic IP recommended) |
 | `EC2_USERNAME` | Ubuntu EC2 login user (commonly `ubuntu`) |
 | `EC2_SSH_KEY` | private key (PEM contents) for that user |
-| `API_KEY` | (optional) value clients must send as `X-API-Key` |
-| `MLFLOW_TRACKING_URI` | Needed only when DVC determines `register_model` must execute. Configure a persistent remote URI; a fresh runner's SQLite registry is temporary and cannot preserve champion history. The workflow fails closed if registration would run without this secret. |
 
-GitHub Actions secret names cannot be read through the repository tools available in this session. Configure the names above; `API_KEY` is optional. `AWS_REGION` is referenced as a secret by the current workflow, even though it is configuration rather than a secret.
+## Optional or Conditional Values
+
+| Name | Requirement |
+|---|---|
+| `AWS_REGION` | Not a secret. The workflow uses `ap-south-1` consistently for AWS, DVC, ECR, and EC2. |
+| `API_KEY` | Optional. When omitted or empty, `/predict` is unauthenticated; when set, clients must send it as `X-API-Key`. |
+| `MLFLOW_TRACKING_URI` | Conditional. Needed only when the DVC dry run says `register_model` must execute. Use a persistent remote URI; the workflow fails closed if registration would run without it, because a fresh runner's SQLite registry cannot preserve champion history. |
+
+GitHub secret presence cannot be queried from the repository checkout. Confirm the required names above are configured and add `MLFLOW_TRACKING_URI` if model registration needs to run.
 
 GitHub Actions currently uses long-lived AWS access-key secrets because that is the existing authentication design. The EC2 host uses the `VoltGuardEC2S3Role` instance profile for ECR/S3 read access and has no AWS keys in the deployment. GitHub OIDC is not enabled; it requires an AWS IAM role trust policy for this repository and replacing the access-key configuration with that role ARN.
 

@@ -39,14 +39,14 @@ stages:
       size: 129808
     - path: src/data
       hash: md5
-      md5: 938400b4fb8b34bcccc550147fe4cf2a.dir
-      size: 15309
-      nfiles: 8
+      md5: 87911105046da40a445c182061900037.dir
+      size: 7352
+      nfiles: 4
     - path: src/features
       hash: md5
-      md5: 1cb33ce37b1204e89351a8bc60c4c847.dir
-      size: 5821
-      nfiles: 4
+      md5: df000f8996ee9b4a50211777c757607a.dir
+      size: 2512
+      nfiles: 2
     - path: src/pipeline/preprocess.py
       hash: md5
       md5: 8719f17d2d229d03fa6c7545ace681e6

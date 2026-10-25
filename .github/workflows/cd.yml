@@ -65,15 +65,27 @@ jobs:
           dvc remote modify --local storage region "${AWS_REGION}"
       - name: Pull all locked DVC outputs
         run: dvc pull
-      - name: Run DVC pipeline through evaluation
+      - name: Reuse the locked release or run changed evaluation stages
+        id: evaluation
         env:
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
-        run: dvc repro evaluate
+        run: |
+          plan="$(dvc repro evaluate --dry 2>&1)"
+          printf '%s\n' "$plan"
+          if grep -Eq "Running stage '(data_ingestion|preprocess|train|evaluate)':" <<< "$plan"; then
+            echo "reuse_locked=false" >> "$GITHUB_OUTPUT"
+            dvc repro evaluate
+          else
+            echo "reuse_locked=true" >> "$GITHUB_OUTPUT"
+            echo "Evaluation stages are unchanged; validating and reusing the locked model release."
+            python scripts/verify_deployment_artifacts.py
+          fi
       - name: Model quality gate (run before MLflow registration)
         run: |
           python scripts/quality_gate.py
           dvc metrics show
-      - name: Require persistent MLflow if model registration would rerun
+      - name: Require persistent MLflow if changed evaluation needs registration
+        if: steps.evaluation.outputs.reuse_locked != 'true'
         env:
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
         run: |
@@ -83,7 +95,8 @@ jobs:
             echo "Model registration would run, but MLFLOW_TRACKING_URI is unset. Configure a persistent registry before registering or deploying a new model."
             exit 1
           fi
-      - name: Register or reuse the evaluated model
+      - name: Register model after changed evaluation
+        if: steps.evaluation.outputs.reuse_locked != 'true'
         env:
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
         run: dvc repro register_model

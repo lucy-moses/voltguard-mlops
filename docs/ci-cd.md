@@ -8,7 +8,7 @@
 ## `cd.yml` step by step
 
 1. **test** - checkout, Python 3.11, install, `ruff`, `pytest`.
-2. **pipeline** - configure AWS, point DVC at `s3://$DVC_S3_BUCKET/voltguard`, pull all outputs described by the committed `dvc.lock`, then run **`dvc repro evaluate`**. With unchanged inputs, this reuses the locked outputs. The quality gate runs before MLflow registration, so a rejected evaluation cannot create/promote a model version. Before registration, a DVC dry run checks whether the registry stage needs to execute; if it does, a persistent `MLFLOW_TRACKING_URI` is required. A release check verifies the manifest hash matches `dvc.lock`, verifies the bundle SHA-256, and requires a promoted `champion` alias. Finally, `dvc push` publishes any new outputs and uploads this run's lock + manifest.
+2. **pipeline** - configure AWS and DVC, pull all outputs described by the committed `dvc.lock`, then dry-run through `evaluate`. If the evaluation stages are unchanged, validate the locked registration inputs, manifest, and bundle, and reuse that release without invoking `register_model`. If an evaluation stage changed, run it and apply the existing quality gate before registration. A persistent `MLFLOW_TRACKING_URI` is required only if the changed evaluation makes registration necessary; otherwise the workflow fails closed. The release check requires a promoted `champion` alias and verifies the DVC manifest hash and bundle SHA-256. Finally, `dvc push` publishes any new outputs.
 3. **build-push** - download that exact `dvc.lock`, log in to ECR, build the image from it, and push `:<git sha>` **and** `:latest`. Deployment uses only the immutable commit SHA tag.
 4. **deploy** - copy `scripts/deploy.sh` to EC2 and run it over SSH with the exact image SHA and expected model version. The EC2 instance role supplies ECR/S3 read access; the script publishes host port **8000** to container port **8000**, waits for `/health` and `/model-info` to report the expected champion version, and restores the previous image if startup or verification fails. The runner checks the public `http://$EC2_HOST:8000` endpoints.
 
@@ -31,7 +31,7 @@ Deployments are always by immutable SHA tag - `latest` is only a convenience.
 |---|---|
 | `AWS_REGION` | Not a secret. The workflow uses `ap-south-1` consistently for AWS, DVC, ECR, and EC2. |
 | `API_KEY` | Optional. When omitted or empty, `/predict` is unauthenticated; when set, clients must send it as `X-API-Key`. |
-| `MLFLOW_TRACKING_URI` | Conditional. Needed only when the DVC dry run says `register_model` must execute. Use a persistent remote URI; the workflow fails closed if registration would run without it, because a fresh runner's SQLite registry cannot preserve champion history. |
+| `MLFLOW_TRACKING_URI` | Conditional. Needed only when evaluation stages change and DVC says `register_model` must execute. Reusing a validated, unchanged DVC-locked release does not need a tracking server. Use a persistent remote URI for new registration; the workflow fails closed without it because a fresh runner's SQLite registry cannot preserve champion history. |
 
 GitHub secret presence cannot be queried from the repository checkout. Confirm the required names above are configured and add `MLFLOW_TRACKING_URI` if model registration needs to run.
 

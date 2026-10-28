@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+from pathlib import Path
 
 import pytest
 import yaml
@@ -10,6 +11,17 @@ from scripts import verify_evaluation_artifacts as evaluation_guard
 from scripts.validate_mlflow_tracking_uri import validate_tracking_uri
 from scripts.validate_production_https_url import validate_production_https_url
 from src.utils.mlflow_utils import setup_mlflow
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_cd_preflight_defers_api_key_to_deploy_environment():
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/cd.yml").read_text(encoding="utf-8"))
+    preflight = workflow["jobs"]["release-preflight"]["steps"][1]
+    deploy = workflow["jobs"]["deploy"]["steps"][2]
+
+    assert "API_KEY" not in preflight["env"]
+    assert "API_KEY" in deploy["env"]
 
 
 @pytest.mark.parametrize(

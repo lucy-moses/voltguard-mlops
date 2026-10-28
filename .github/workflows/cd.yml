@@ -21,6 +21,7 @@ jobs:
   release-preflight:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment: production
     steps:
       - uses: actions/checkout@v4
       - name: Require release configuration and validate HTTPS ingress

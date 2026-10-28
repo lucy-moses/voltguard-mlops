@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+from pathlib import Path
 
 import pytest
 import yaml
@@ -160,3 +161,8 @@ def test_evaluation_guard_rejects_incomplete_metrics(tmp_path):
     (tmp_path / "dvc.lock").write_text(yaml.safe_dump(lock), encoding="utf-8")
     with pytest.raises(ValueError, match="incomplete or invalid"):
         evaluation_guard.verify_evaluation_artifacts(tmp_path)
+
+
+def test_cd_release_preflight_uses_production_environment_scope():
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[1] / ".github/workflows/cd.yml").read_text(encoding="utf-8"))
+    assert workflow["jobs"]["release-preflight"]["environment"] == "production"

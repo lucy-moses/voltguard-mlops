@@ -25,7 +25,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Require release configuration and validate HTTPS ingress
         env:
-          API_KEY: ${{ secrets.API_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           DVC_S3_BUCKET: ${{ secrets.DVC_S3_BUCKET }}
@@ -35,7 +34,7 @@ jobs:
           PRODUCTION_HTTPS_HOST: ${{ vars.PRODUCTION_HTTPS_HOST }}
         run: |
           set -euo pipefail
-          for name in API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY DVC_S3_BUCKET ECR_REPOSITORY EC2_INSTANCE_ID; do
+          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY DVC_S3_BUCKET ECR_REPOSITORY EC2_INSTANCE_ID; do
             value="${!name}"
             if [[ -z "${value//[[:space:]]/}" ]]; then
               echo "::error::Required secret or repository variable ${name} is missing or blank."

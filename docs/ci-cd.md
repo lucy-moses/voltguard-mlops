@@ -7,7 +7,7 @@
 
 ## `cd.yml` step by step
 
-1. **release-preflight** - before tests, DVC work, or image builds, verify required secrets, the EC2 instance ID, HTTPS URL/approved-host configuration, and that the instance is online in Systems Manager. The HTTPS validator rejects non-HTTPS schemes, userinfo, query/fragment, paths, malformed authorities/ports, IP/localhost hosts, and host mismatches. It normalizes hostname case, a single trailing dot, and explicit numeric port 443 to a canonical HTTPS origin. It performs no network request and never disables TLS verification.
+1. **release-preflight** - before tests, DVC work, or image builds, verify the non-environment deployment secrets, the EC2 instance ID, HTTPS URL/approved-host configuration, and that the instance is online in Systems Manager. The production `API_KEY` is validated later in `deploy` after the protected environment gate. The HTTPS validator rejects non-HTTPS schemes, userinfo, query/fragment, paths, malformed authorities/ports, IP/localhost hosts, and host mismatches. It normalizes hostname case, a single trailing dot, and explicit numeric port 443 to a canonical HTTPS origin. It performs no network request and never disables TLS verification.
 2. **test** - checkout, install Python 3.11 dependencies, run `ruff`, `pytest`, and the synthetic smoke test.
 3. **pipeline** - configure AWS and DVC, pull all outputs described by the committed `dvc.lock`, then dry-run through `evaluate`. If the evaluation stages are unchanged, validate the locked registration inputs, manifest, and bundle, and reuse that release without invoking `register_model` or requiring MLflow settings. If an evaluation stage changed, require and validate an approved HTTPS tracking URI before running evaluation. Then verify the updated DVC-locked evaluation metrics and model bundle, run the quality gate and `dvc metrics show`, and dry-run `register_model`. Registration runs only if DVC explicitly reports that stage would run. The release check after registration requires a promoted `champion` alias and verifies the DVC manifest hash and bundle SHA-256. Finally, `dvc push` publishes any new outputs.
 4. **build-push** - download that exact `dvc.lock`, log in to ECR, build the image from it, and push `:<git sha>` and `:latest`. The repository is configured as **Immutable with exclusions**, with only `latest` excluded; commit-SHA tags therefore cannot be overwritten.
@@ -23,7 +23,7 @@ The live ECR repository was verified as **Immutable with exclusions**, with `lat
 | `DVC_S3_BUCKET` | bucket name only (no `s3://`) |
 | `ECR_REPOSITORY` | e.g. `voltguard-api` |
 | `EC2_INSTANCE_ID` | EC2 instance ID managed by Systems Manager (currently `i-010f53e6c94892a04`) |
-| `API_KEY` | Required for deployment; protects `POST /predict`, `/model-info`, and `/metrics` with `X-API-Key`. The workflow preflight checks it before pipeline publication, image publication, or EC2 deployment. |
+| `API_KEY` | Required for deployment; protects `POST /predict`, `/model-info`, and `/metrics` with `X-API-Key`. Read by the `deploy` job after `environment: production` approval (not by early preflight). |
 | `MLFLOW_TRACKING_URI` | Secret; required only when evaluation stages change. Must be an HTTPS URL for the persistent MLflow tracking server. Credentials must not be embedded in the URI. |
 | `MLFLOW_TRACKING_USERNAME`, `MLFLOW_TRACKING_PASSWORD` | Optional secrets for MLflow HTTP basic authentication; configure both when required by the approved server. |
 

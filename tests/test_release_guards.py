@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+from pathlib import Path
 
 import pytest
 import yaml
@@ -160,3 +161,34 @@ def test_evaluation_guard_rejects_incomplete_metrics(tmp_path):
     (tmp_path / "dvc.lock").write_text(yaml.safe_dump(lock), encoding="utf-8")
     with pytest.raises(ValueError, match="incomplete or invalid"):
         evaluation_guard.verify_evaluation_artifacts(tmp_path)
+
+
+def test_locked_metrics_hashes_match_committed_metric_files():
+    repo_root = Path(__file__).resolve().parents[1]
+    lock = yaml.safe_load((repo_root / "dvc.lock").read_text(encoding="utf-8"))
+
+    stage_path_pairs = [
+        ("preprocess", "artifacts/metrics/preprocess_report.json"),
+        ("train", "artifacts/metrics/train_metrics.json"),
+        ("evaluate", "artifacts/metrics/evaluation.json"),
+    ]
+
+    for stage, relative_path in stage_path_pairs:
+        metric_path = repo_root / relative_path
+        expected_md5 = next(
+            out["md5"] for out in lock["stages"][stage]["outs"] if out["path"] == relative_path
+        )
+        actual_md5 = hashlib.md5(metric_path.read_bytes()).hexdigest()
+        assert actual_md5 == expected_md5
+
+    register_eval_dep = next(
+        dep["md5"]
+        for dep in lock["stages"]["register_model"]["deps"]
+        if dep["path"] == "artifacts/metrics/evaluation.json"
+    )
+    evaluate_out = next(
+        out["md5"]
+        for out in lock["stages"]["evaluate"]["outs"]
+        if out["path"] == "artifacts/metrics/evaluation.json"
+    )
+    assert register_eval_dep == evaluate_out

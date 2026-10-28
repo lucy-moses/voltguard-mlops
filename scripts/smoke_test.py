@@ -12,13 +12,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.pipeline.stages import run_all  # noqa: E402
-from tests.synthetic import make_test_config, write_synthetic_mat  # noqa: E402
+from tests.synthetic import assert_isolated_test_config, make_test_config, write_synthetic_mat  # noqa: E402
 
 
 def main() -> int:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         tmp = Path(d)
         cfg = make_test_config(tmp)
+        assert_isolated_test_config(cfg, tmp)
         write_synthetic_mat(Path(cfg["paths"]["raw_dir"]), cfg["ingest"]["batteries"])
         out = run_all(cfg)
         m = out["register_model"]

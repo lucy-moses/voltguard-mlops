@@ -76,3 +76,29 @@ def make_test_config(tmp: Path, batteries=("B0005", "B0006", "B0007", "B0018"), 
         }
     cfg["registry"]["model_name"] = "VoltGuard-Test"
     return cfg
+
+
+def assert_isolated_test_config(cfg: dict, tmp: Path) -> None:
+    """Fail closed unless MLflow and all pipeline paths are inside a disposable test root."""
+    root = tmp.resolve()
+
+    def assert_within_root(value: str | Path, label: str) -> Path:
+        path = Path(value).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(f"{label} must be inside the temporary test root {root}: {path}") from exc
+        return path
+
+    uri = cfg["mlflow"]["tracking_uri"]
+    prefix = "sqlite:///"
+    if not isinstance(uri, str) or not uri.startswith(prefix):
+        raise ValueError("test MLflow tracking URI must use a file-backed SQLite store")
+    assert_within_root(uri[len(prefix):], "MLflow database")
+    assert_within_root(cfg["mlflow"]["artifact_root"], "MLflow artifact root")
+
+    for name, path in cfg["paths"].items():
+        assert_within_root(path, f"pipeline path {name}")
+
+    if cfg["registry"]["model_name"] != "VoltGuard-Test":
+        raise ValueError("test registry model name must be VoltGuard-Test")

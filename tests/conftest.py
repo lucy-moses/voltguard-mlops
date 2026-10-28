@@ -9,13 +9,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.pipeline.stages import run_all  # noqa: E402
-from tests.synthetic import make_test_config, write_synthetic_mat  # noqa: E402
+from tests.synthetic import assert_isolated_test_config, make_test_config, write_synthetic_mat  # noqa: E402
 
 
 @pytest.fixture(scope="session")
 def pipeline_run(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("voltguard")
     cfg = make_test_config(tmp)
+    assert_isolated_test_config(cfg, tmp)
     write_synthetic_mat(Path(cfg["paths"]["raw_dir"]), cfg["ingest"]["batteries"])
     out = run_all(cfg)
     return cfg, out

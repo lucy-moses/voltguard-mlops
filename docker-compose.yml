@@ -8,6 +8,7 @@ services:
     env_file: [.env]
     environment:
       MODEL_SOURCE: ${MODEL_SOURCE:-local}
+      REQUIRE_API_KEY: ${REQUIRE_API_KEY:-true}
       ARTIFACT_DIR: /app/artifacts/models
     volumes:
       - ./artifacts/models:/app/artifacts/models

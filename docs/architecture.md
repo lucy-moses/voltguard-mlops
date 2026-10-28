@@ -27,7 +27,7 @@ flowchart TD
     C --> D[Run DVC pipeline]
     D --> E[Build Docker image]
     E --> F[Push image to AWS ECR<br/>tags: commit SHA + latest]
-    F --> G[AWS EC2 - deploy.sh via SSH]
+    F --> G[AWS EC2 - deploy.sh via Systems Manager]
     G --> H[Pull Docker image from ECR]
     H --> I[Container entrypoint: dvc pull model from DVC remote]
     I --> J[Start FastAPI]

@@ -11,7 +11,9 @@ from src.utils.config import resolve
 
 
 @pytest.fixture()
-def client(pipeline_run):
+def client(pipeline_run, monkeypatch):
+    monkeypatch.setenv("REQUIRE_API_KEY", "false")
+    monkeypatch.delenv("API_KEY", raising=False)
     cfg, _ = pipeline_run
     svc = ModelService(resolve(cfg["paths"]["models_dir"]), "champion")
     svc.load()
@@ -70,6 +72,7 @@ def test_metrics_endpoint_tracks_requests(client, sample_payload):
 
 
 def test_api_key_enforced_when_configured(client, sample_payload, monkeypatch):
+    monkeypatch.setenv("REQUIRE_API_KEY", "true")
     monkeypatch.setenv("API_KEY", "s3cret")
     assert client.post("/predict", json=sample_payload).status_code == 401
     assert client.post("/predict", json=sample_payload, headers={"X-API-Key": "wrong"}).status_code == 401
@@ -77,11 +80,48 @@ def test_api_key_enforced_when_configured(client, sample_payload, monkeypatch):
     assert client.get("/health").status_code == 200  # health stays open for load balancers
 
 
-def test_service_without_model_reports_503(tmp_path, sample_payload):
+def test_model_info_and_metrics_require_key_in_production(client, monkeypatch):
+    monkeypatch.setenv("REQUIRE_API_KEY", "true")
+    monkeypatch.setenv("API_KEY", "audit-test-key")
+    for path in ("/model-info", "/metrics"):
+        assert client.get(path).status_code == 401
+        assert client.get(path, headers={"X-API-Key": "wrong"}).status_code == 401
+        assert client.get(path, headers={"X-API-Key": "audit-test-key"}).status_code == 200
+    assert client.get("/health").status_code == 200
+
+
+def test_authentication_is_required_by_default(client, sample_payload, monkeypatch):
+    monkeypatch.delenv("REQUIRE_API_KEY", raising=False)
+    monkeypatch.delenv("API_KEY", raising=False)
+    assert client.post("/predict", json=sample_payload).status_code == 503
+    assert client.get("/model-info").status_code == 503
+
+
+@pytest.mark.parametrize("api_key", [None, "", "   "])
+def test_production_auth_fails_closed_without_api_key(client, sample_payload, monkeypatch, api_key):
+    monkeypatch.setenv("REQUIRE_API_KEY", "true")
+    if api_key is None:
+        monkeypatch.delenv("API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("API_KEY", api_key)
+    assert client.post("/predict", json=sample_payload).status_code == 503
+    assert client.get("/health").status_code == 200
+
+
+def test_invalid_auth_mode_fails_closed(client, sample_payload, monkeypatch):
+    monkeypatch.setenv("REQUIRE_API_KEY", "tru")
+    monkeypatch.setenv("API_KEY", "audit-test-key")
+    assert client.post("/predict", json=sample_payload).status_code == 503
+
+
+def test_service_without_model_reports_503(tmp_path, sample_payload, monkeypatch):
+    monkeypatch.setenv("REQUIRE_API_KEY", "false")
+    monkeypatch.delenv("API_KEY", raising=False)
     svc = ModelService(tmp_path, "champion")
     c = TestClient(create_app(svc))
     assert c.get("/health").status_code == 503
     assert c.post("/predict", json=sample_payload).status_code == 503
+    assert c.get("/model-info").status_code == 503
 
 
 def test_loader_rejects_wrong_alias_and_tampering(pipeline_run, tmp_path):

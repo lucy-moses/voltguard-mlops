@@ -2,7 +2,7 @@
 
 ## Setup
 
-Default backend: SQLite (`mlflow/mlflow.db`) + local artifact folder - needed because the Model Registry requires a database backend. To share results across machines/CI, run a tracking server and export `MLFLOW_TRACKING_URI=http://host:5000` (and add it as the optional `MLFLOW_TRACKING_URI` secret for CI).
+Default backend: SQLite (`mlflow/mlflow.db`) + local artifact folder - needed because the Model Registry requires a database backend. For trusted local-network experimentation only, a tracking server can use `MLFLOW_TRACKING_URI=http://host:5000`; do not send authentication credentials over that HTTP connection and do not treat it as a production configuration. Production tracking requires HTTPS with a valid certificate and an explicitly approved hostname, plus persistent database-backed registry storage and durable artifact storage. Configure the CI `MLFLOW_TRACKING_URI` secret and `MLFLOW_TRACKING_ALLOWED_HOST` variable only after those properties are verified. CI validates URL syntax and hostname but does not prove persistence or contact the server.
 
 ```bash
 mlflow ui --backend-store-uri sqlite:///mlflow/mlflow.db --port 5000

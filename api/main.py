@@ -47,7 +47,14 @@ def create_app(service: ModelService | None = None) -> FastAPI:
 
     def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
         expected = os.getenv("API_KEY")
-        if expected and not (x_api_key and hmac.compare_digest(x_api_key, expected)):
+        # Fail closed by default. Local development/tests must opt out explicitly.
+        auth_mode = os.getenv("REQUIRE_API_KEY", "true").strip().lower()
+        if auth_mode not in {"true", "false"}:
+            raise HTTPException(status_code=503, detail="API authentication mode is misconfigured")
+        required = auth_mode == "true"
+        if required and (not expected or not expected.strip()):
+            raise HTTPException(status_code=503, detail="API authentication is required but not configured")
+        if (required or expected) and not (x_api_key and hmac.compare_digest(x_api_key, expected)):
             raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key")
 
     @app.middleware("http")
@@ -86,11 +93,11 @@ def create_app(service: ModelService | None = None) -> FastAPI:
             return HealthResponse(status="model_not_loaded", model_loaded=False)
         return HealthResponse(status="ok", model_loaded=True, model_version=s.manifest["model_version"])
 
-    @app.get("/model-info")
+    @app.get("/model-info", dependencies=[Depends(require_api_key)])
     def model_info() -> dict:
         return svc().info()
 
-    @app.get("/metrics")
+    @app.get("/metrics", dependencies=[Depends(require_api_key)])
     def metrics() -> Response:
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 

@@ -30,7 +30,8 @@ def setup_mlflow(cfg: dict[str, Any]) -> str:
             mlflow.create_experiment(name)
     mlflow.set_experiment(name)
     _restore_logging()
-    log.info("MLflow tracking URI=%s experiment=%s", uri, name)
+    scheme = uri.partition(":")[0].lower() if ":" in uri else "local"
+    log.info("MLflow tracking configured (scheme=%s) experiment=%s", scheme, name)
     return uri
 
 

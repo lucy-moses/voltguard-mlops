@@ -3,7 +3,7 @@
 FROM python:3.11-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 DVC_NO_ANALYTICS=1 \
-    ARTIFACT_DIR=/app/artifacts/models MODEL_ALIAS=champion MODEL_SOURCE=dvc
+    ARTIFACT_DIR=/app/artifacts/models MODEL_ALIAS=champion MODEL_SOURCE=dvc REQUIRE_API_KEY=true
 
 # libgomp1 is required by xgboost / scikit-learn OpenMP; curl for HEALTHCHECK
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 curl \

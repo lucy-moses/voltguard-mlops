@@ -54,16 +54,20 @@ The instance only needs *read* on S3 - it can fetch models but not modify them.
 ## 4. EC2 instance
 
 * AMI: Ubuntu, type `t3.small` or larger (xgboost + sklearn + DVC need ~1 GB RAM), 20 GB gp3.
-* Attach the `VoltGuardEC2S3Role` instance profile; allocate an **Elastic IP** so `EC2_HOST` is stable.
+* Attach the `VoltGuardEC2S3Role` instance profile and keep the Systems Manager Agent online. CI targets the instance by ID, so a public IP is not required for deployment.
 * **Security group** (least privilege):
 
 | Direction | Port | Source | Why |
 |---|---|---|---|
-| Inbound | 22/tcp | your IP (or GitHub runner ranges / use SSM instead) | SSH for deploy |
-| Inbound | 8000/tcp | clients (`0.0.0.0/0`, or a restricted range) | API (host 8000 -> container 8000) |
+| Inbound | 22/tcp | operator IP only, or closed when using SSM exclusively | Optional manual SSH administration |
+| Inbound | 8000/tcp | none from public clients; proxy access only if required | API (host 8000 -> container 8000) |
 | Outbound | all (default) | | ECR, S3 |
 
-  Do not open 80, 5000, or 9090 for this deployment. For HTTPS put an ALB/CloudFront or Caddy/nginx in front (not included). `/metrics` is served on port 8000; block it at the proxy/ALB if the API is public.
+  Do not open 5000 or 9090. Ports 80/443 may be open for the configured HTTPS proxy and certificate renewal. Never expose port 8000 publicly. `/metrics` is served on port 8000; block it at the proxy/ALB if the API is public.
+
+### Systems Manager deployment permissions
+
+The GitHub Actions AWS identity needs `ssm:DescribeInstanceInformation`, `ssm:SendCommand` (restricted to this instance and `AWS-RunShellScript`), `ssm:GetCommandInvocation`, and `ssm:PutParameter`/`ssm:DeleteParameter` on `arn:aws:ssm:ap-south-1:270068815292:parameter/voltguard/deploy/*`. The EC2 instance role needs `ssm:GetParameter` on that parameter path. The workflow stores the API key as a temporary `SecureString`; the Run Command payload contains only the parameter name. The workflow removes the parameter after the deployment command, and the remote script removes its temporary file on normal exit. Forced cancellation or host loss can interrupt cleanup.
 * **IMDSv2 hop limit** - containers reach the instance role credentials only if the hop limit is 2:
 
 ```bash
@@ -79,24 +83,28 @@ scp -i key.pem scripts/setup_ec2.sh ubuntu@$EC2_HOST:~ && ssh -i key.pem ubuntu@
 
 ## 6. Configure GitHub and deploy
 
-Add the secrets from `docs/ci-cd.md`, then push to `main` (or run the *CD* workflow manually).
+Configure the secrets and repository variables from `docs/ci-cd.md`, including `EC2_INSTANCE_ID`, `PRODUCTION_HTTPS_URL`, and its exact allowlisted `PRODUCTION_HTTPS_HOST`, only after HTTPS ingress is configured. These must be repository/organization variables available to the early preflight. The CD workflow fails closed before tests, DVC pipeline work, or image builds when either HTTPS setting is missing, malformed, or mismatched, or when the EC2 instance is not online in Systems Manager. Do not push to `main` or dispatch the *CD* workflow for production before the HTTPS endpoint and certificate are configured and verified.
 
-Manual deploy (what the pipeline does):
+Manual deploy (same locked-image flow as the pipeline; production remains blocked until HTTPS is configured):
 
 ```bash
 ssh -i key.pem ubuntu@$EC2_HOST
 export AWS_REGION=ap-south-1 ECR_REGISTRY=<acct>.dkr.ecr.ap-south-1.amazonaws.com ECR_REPOSITORY=voltguard-api \
-       IMAGE_TAG=<git-sha> DVC_REMOTE_URL=s3://<bucket>/voltguard HOST_PORT=8000 API_KEY=<secret>
+       IMAGE_TAG=<git-sha> DVC_REMOTE_URL=s3://<bucket>/voltguard HOST_PORT=8000 \
+       API_KEY_FILE=/tmp/voltguard/api-key.env EXPECTED_MODEL_VERSION=<locked-version> \
+       PRODUCTION_HTTPS_URL=<approved-https-origin>
 bash /tmp/voltguard/deploy.sh
 ```
+
+For a manual operator deployment, transfer both scripts and a mode-600 API-key env file over an authenticated SSH session; do not put the key in shell command arguments or terminal history. CI uses Systems Manager and a temporary Parameter Store `SecureString` instead. The deploy script removes the remote file on normal exit. Runner cancellation/loss or EC2 loss can interrupt cleanup.
 
 ## 7. Test it
 
 ```bash
-curl http://$EC2_HOST:8000/health
-curl http://$EC2_HOST:8000/model-info
-curl -X POST http://$EC2_HOST:8000/predict -H 'Content-Type: application/json' -H "X-API-Key: $API_KEY" -d @examples/predict_request.json
+curl --fail "$PRODUCTION_HTTPS_URL/health"
 ```
+
+Never send `X-API-Key` to a public HTTP URL. The deploy script verifies authenticated `/model-info` locally on EC2 at `http://127.0.0.1:8000/model-info` through Systems Manager. Public protected API calls and production use require HTTPS with a valid certificate and no direct public access to port 8000.
 
 ## Troubleshooting
 

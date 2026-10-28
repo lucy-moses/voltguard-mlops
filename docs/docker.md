@@ -16,7 +16,8 @@
 | `DVC_REMOTE_URL` | from `.dvc/config` | override remote, e.g. `s3://bucket/voltguard` |
 | `AWS_REGION` | - | S3 region |
 | `AWS_ACCESS_KEY_ID`/`SECRET` | - | local testing only; on EC2 use the instance IAM role |
-| `API_KEY` | unset | if set, `POST /predict` needs header `X-API-Key` |
+| `API_KEY` | unset | required for protected endpoints in production: `POST /predict`, `GET /model-info`, and `GET /metrics`; Docker administrators can inspect container environment values |
+| `REQUIRE_API_KEY` | `true` in the image | authentication is fail-closed by default; the local Compose example opts out explicitly |
 | `ARTIFACT_DIR`, `PORT`, `UVICORN_WORKERS`, `LOG_LEVEL` | see Dockerfile | |
 
 ## Commands
@@ -26,16 +27,22 @@
 docker build -t voltguard-api:local .
 
 # A) offline: serve the model you just trained
-docker run --rm -p 8000:8000 -e MODEL_SOURCE=local \
+docker run --rm -p 8000:8000 --env-file .env -e MODEL_SOURCE=local \
   -v "$PWD/artifacts/models:/app/artifacts/models" voltguard-api:local
 
 # B) same path as EC2: pull the model from the S3 DVC remote
 docker run --rm -p 8000:8000 --env-file .env \
   -e DVC_REMOTE_URL=s3://<bucket>/voltguard voltguard-api:local
 
-# docker compose (uses .env; MODEL_SOURCE=local by default)
+# docker compose (uses .env; MODEL_SOURCE=local and explicit local auth opt-out by default)
 cp .env.example .env && docker compose up --build
 docker compose --profile tracking up mlflow-ui     # MLflow UI on :5000
 ```
 
-> Honesty note: Docker was **not available** in my build environment, so `Dockerfile` and `docker-compose.yml` were reviewed and their contents (bootstrap + API) were exercised outside a container, but the image itself has not been built by me. Build it locally first and fix any platform-specific issue before relying on CI.
+Production containers require `API_KEY`; the image defaults `REQUIRE_API_KEY=true`. For local source development only, set `REQUIRE_API_KEY=false` explicitly. Use an env file instead of putting key values in command arguments. Docker administrators can still inspect a running container's environment, so this does not protect the key from privileged host users. `/health` remains unauthenticated for health checks; `/model-info` and `/metrics` use the API key.
+
+Public clients must never send `X-API-Key` over HTTP. Production requires HTTPS with a valid certificate and direct public access to port 8000 restricted. CI verifies authenticated `/model-info` locally on EC2 over loopback through Systems Manager; its public health check uses the configured HTTPS endpoint and sends no API key.
+
+Port 8000 serves plain HTTP. Before public use, terminate HTTPS at a managed load balancer or reverse proxy with a DNS name and valid certificate, forward traffic internally to port 8000, and restrict the EC2 security group so only the proxy can reach port 8000. The current deployment does not configure this infrastructure.
+
+> A successful local image build does not verify runtime access to the DVC remote. The deployed host still needs valid instance-role permissions and a remote containing the manifest and model bundle pinned by the image's `dvc.lock`.

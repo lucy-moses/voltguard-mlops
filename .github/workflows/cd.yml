@@ -18,7 +18,57 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require release configuration and validate HTTPS ingress
+        env:
+          API_KEY: ${{ secrets.API_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          DVC_S3_BUCKET: ${{ secrets.DVC_S3_BUCKET }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+          PRODUCTION_HTTPS_URL: ${{ vars.PRODUCTION_HTTPS_URL }}
+          PRODUCTION_HTTPS_HOST: ${{ vars.PRODUCTION_HTTPS_HOST }}
+        run: |
+          set -euo pipefail
+          for name in API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY DVC_S3_BUCKET ECR_REPOSITORY EC2_INSTANCE_ID; do
+            value="${!name}"
+            if [[ -z "${value//[[:space:]]/}" ]]; then
+              echo "::error::Required secret or repository variable ${name} is missing or blank."
+              exit 1
+            fi
+          done
+          if [[ ! "$EC2_INSTANCE_ID" =~ ^i-[0-9a-f]{8,17}$ ]]; then
+            echo "::error::EC2_INSTANCE_ID must be a valid EC2 instance ID."
+            exit 1
+          fi
+          python3 scripts/validate_production_https_url.py
+      - name: Configure AWS credentials for SSM readiness check
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+          mask-aws-account-id: true
+      - name: Require the EC2 instance to be online in Systems Manager
+        env:
+          EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+        run: |
+          set -euo pipefail
+          status="$(aws ssm describe-instance-information \
+            --filters "Key=InstanceIds,Values=${EC2_INSTANCE_ID}" \
+            --query 'InstanceInformationList[0].PingStatus' --output text)"
+          if [[ "$status" != "Online" ]]; then
+            echo "::error::EC2 instance is not online in Systems Manager; stopping before build or publication."
+            exit 1
+          fi
+
   test:
+    needs: release-preflight
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -56,6 +106,7 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
+          mask-aws-account-id: true
       - name: Point DVC at the S3 remote
         env:
           DVC_S3_BUCKET: ${{ secrets.DVC_S3_BUCKET }}
@@ -69,10 +120,14 @@ jobs:
         id: evaluation
         env:
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+          MLFLOW_TRACKING_ALLOWED_HOST: ${{ vars.MLFLOW_TRACKING_ALLOWED_HOST }}
         run: |
           plan="$(dvc repro evaluate --dry 2>&1)"
           printf '%s\n' "$plan"
           if grep -Eq "Running stage '(data_ingestion|preprocess|train|evaluate)':" <<< "$plan"; then
+            python scripts/validate_mlflow_tracking_uri.py
             echo "reuse_locked=false" >> "$GITHUB_OUTPUT"
             dvc repro evaluate
           else
@@ -80,25 +135,40 @@ jobs:
             echo "Evaluation stages are unchanged; validating and reusing the locked model release."
             python scripts/verify_deployment_artifacts.py
           fi
+      - name: Validate changed evaluation outputs
+        if: steps.evaluation.outputs.reuse_locked != 'true'
+        run: python scripts/verify_evaluation_artifacts.py
       - name: Model quality gate (run before MLflow registration)
         run: |
           python scripts/quality_gate.py
           dvc metrics show
-      - name: Require persistent MLflow if changed evaluation needs registration
+      - name: Plan registration and validate approved persistent MLflow
+        id: registration
         if: steps.evaluation.outputs.reuse_locked != 'true'
         env:
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_ALLOWED_HOST: ${{ vars.MLFLOW_TRACKING_ALLOWED_HOST }}
         run: |
-          plan="$(dvc repro register_model --dry 2>&1)"
+          if ! plan="$(dvc repro register_model --dry 2>&1)"; then
+            printf '%s\n' "$plan"
+            exit 1
+          fi
           printf '%s\n' "$plan"
-          if [[ -z "$MLFLOW_TRACKING_URI" ]] && ! grep -Fq "Stage 'register_model' didn't change, skipping" <<< "$plan"; then
-            echo "Model registration would run, but MLFLOW_TRACKING_URI is unset. Configure a persistent registry before registering or deploying a new model."
+          if grep -Fq "Stage 'register_model' didn't change, skipping" <<< "$plan"; then
+            echo "register_model_needed=false" >> "$GITHUB_OUTPUT"
+          elif grep -Fq "Running stage 'register_model':" <<< "$plan"; then
+            python scripts/validate_mlflow_tracking_uri.py
+            echo "register_model_needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Could not confirm whether register_model would run; refusing registration."
             exit 1
           fi
       - name: Register model after changed evaluation
-        if: steps.evaluation.outputs.reuse_locked != 'true'
+        if: steps.registration.outputs.register_model_needed == 'true'
         env:
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
         run: dvc repro register_model
       - name: Verify deployment manifest, lockfile, and model bundle
         id: verify
@@ -137,6 +207,7 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
+          mask-aws-account-id: true
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
@@ -153,41 +224,25 @@ jobs:
     needs: build-push
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment: production
     steps:
       - uses: actions/checkout@v4
-      - name: Copy deploy script to EC2
-        uses: appleboy/scp-action@v0.1.7
+      - name: Configure AWS credentials for Systems Manager deployment
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: scripts/deploy.sh
-          target: /tmp/voltguard
-          strip_components: 1
-      - name: Deploy on EC2 (pull image from ECR; container pulls model from DVC remote)
-        uses: appleboy/ssh-action@v1.0.3
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+          mask-aws-account-id: true
+      - name: Deploy through Systems Manager using a temporary SecureString API key
         env:
+          API_KEY: ${{ secrets.API_KEY }}
           AWS_REGION: ap-south-1
           ECR_REGISTRY: ${{ needs.build-push.outputs.registry }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
           IMAGE_TAG: ${{ github.sha }}
           DVC_REMOTE_URL: s3://${{ secrets.DVC_S3_BUCKET }}/voltguard
-          API_KEY: ${{ secrets.API_KEY }}
-          HOST_PORT: "8000"
           EXPECTED_MODEL_VERSION: ${{ needs.build-push.outputs.model_version }}
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          envs: AWS_REGION,ECR_REGISTRY,ECR_REPOSITORY,IMAGE_TAG,DVC_REMOTE_URL,API_KEY,HOST_PORT,EXPECTED_MODEL_VERSION
-          script: bash /tmp/voltguard/deploy.sh
-      - name: Smoke-test the public endpoint
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EXPECTED_MODEL_VERSION: ${{ needs.build-push.outputs.model_version }}
+          PRODUCTION_HTTPS_URL: ${{ vars.PRODUCTION_HTTPS_URL }}
         run: |
-          BASE_URL="http://${EC2_HOST}:8000"
-          curl --fail --retry 30 --retry-delay 6 --retry-connrefused "${BASE_URL}/health" \
-            | jq -e --arg version "${EXPECTED_MODEL_VERSION}" '.status == "ok" and .model_loaded == true and .model_version == $version'
-          curl --fail --retry 30 --retry-delay 6 --retry-connrefused "${BASE_URL}/model-info" \
-            | jq -e --arg version "${EXPECTED_MODEL_VERSION}" '.model_version == $version and .alias == "champion" and (.aliases_in_manifest | index("champion") != null)'
+          python scripts/deploy_via_ssm.py

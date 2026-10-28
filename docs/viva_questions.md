@@ -62,19 +62,19 @@
 
 **27. Why is the model not baked into the image?** Per the architecture it is fetched from the DVC remote at start - the image stays small, no weights or secrets are in the registry, and the model version is governed by DVC/MLflow, not by image rebuilds.
 
-**28. What is ECR and how are images tagged?** AWS's private container registry. Each build is tagged with the Git commit SHA (immutable, traceable, used for deploys) and `latest` (convenience).
+**28. What is ECR and how are images tagged?** AWS's private container registry. Each build is tagged with the Git commit SHA (immutable and used for deploys) and `latest` (mutable convenience exclusion).
 
 **29. Why EC2 and not Kubernetes?** One small stateless service does not need orchestration; EC2 + Docker is simpler, cheaper and matches the brief. Trade-off: no auto-scaling/self-healing beyond Docker's restart policy.
 
 **30. How does the EC2 host authenticate to ECR and S3 without stored keys?** Through an IAM instance role (least-privilege read policies). The container reaches it via IMDSv2 (hop limit 2).
 
-**31. What are the security-group rules?** 22 from a restricted source for deploy, 80 for the API; everything else closed. Metrics/MLflow are not exposed publicly.
+**31. What are the security-group rules?** GitHub deployment uses Systems Manager, so port 22 need not be open to GitHub runners; keep SSH restricted to operator IPs or closed. Port 443 reaches the HTTPS proxy. EC2 port 8000 is not exposed publicly. Metrics/MLflow are not exposed publicly.
 
-**32. How do you secure the API?** Input validation, optional `X-API-Key` (constant-time compare), non-root container, least-privilege IAM, secrets only in GitHub Secrets/IAM. Missing: HTTPS termination, rate limiting, user auth - listed as future work.
+**32. How do you secure the API?** Input validation, required-by-default `X-API-Key` (constant-time compare), non-root container, least-privilege IAM, secrets only in GitHub Secrets/IAM. Public clients must never send the key over HTTP; production remains blocked until HTTPS termination is configured. Rate limiting and user auth are also not configured.
 
 ## CI/CD / testing / monitoring
 
-**33. Explain the CI/CD flow.** Push to main -> lint + pytest -> `dvc repro` on real data with quality gate -> `dvc push` model -> `docker build` with that `dvc.lock` -> push to ECR (SHA + latest) -> SSH to EC2 -> `deploy.sh` pulls image -> container pulls model via DVC -> health check -> rollback on failure.
+**33. Explain the CI/CD flow.** Push to main -> validate HTTPS and SSM readiness -> lint + pytest -> DVC locked release reuse or quality-gated evaluation -> push DVC outputs -> build image pinned by `dvc.lock` -> push immutable commit-SHA tag plus mutable `latest` -> protected environment -> deploy through SSM with the API key in a temporary SecureString -> local authenticated model check and public HTTPS health check. Invalid successful health data or wrong version triggers rollback; unavailable public HTTPS after local success leaves the candidate running and reports verification unconfirmed.
 
 **34. What is the quality gate?** A script failing CI if held-out test RMSE exceeds thresholds in `params.yaml`, preventing deployment of a bad model. (Thresholds are policy values you must tune after the first real run.)
 

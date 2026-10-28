@@ -26,9 +26,14 @@ log = logging.getLogger("bootstrap")
 BUNDLE_TARGETS = ("artifacts/models/manifest.json", "artifacts/models/voltguard_bundle.joblib")
 
 
-def run(cmd: list[str]) -> None:
-    log.info("$ %s", " ".join(cmd))
-    subprocess.run(cmd, check=True)
+def run(cmd: list[str], *, display_cmd: str | None = None) -> None:
+    """Run bootstrap commands without logging remote URLs or raw CLI diagnostics."""
+    shown = display_cmd or " ".join(cmd)
+    log.info("$ %s", shown)
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"{shown} failed with exit code {exc.returncode}") from None
 
 
 def dvc_pull() -> None:
@@ -36,10 +41,13 @@ def dvc_pull() -> None:
     if not Path(".git").exists():
         run(["dvc", "config", "--local", "core.no_scm", "true"])  # container has no git metadata
     if env_url:
-        run(["dvc", "remote", "modify", "--local", "storage", "url", env_url])
+        run(
+            ["dvc", "remote", "modify", "--local", "storage", "url", env_url],
+            display_cmd="dvc remote modify --local storage url <configured remote URL>",
+        )
     if os.getenv("AWS_REGION"):
         run(["dvc", "remote", "modify", "--local", "storage", "region", os.environ["AWS_REGION"]])
-    run(["dvc", "pull", "--force", *BUNDLE_TARGETS])
+    run(["dvc", "pull", "--quiet", "--force", *BUNDLE_TARGETS], display_cmd="dvc pull --force <locked model targets>")
 
 
 def main() -> int:

@@ -54,7 +54,7 @@ dvc push
 Details: `docs/dvc.md`. The committed `.dvc/config` holds a placeholder bucket - change it.
 
 ## 10. MLflow setup
-Local SQLite by default (`mlflow/mlflow.db`). UI: `mlflow ui --backend-store-uri sqlite:///mlflow/mlflow.db`. Remote: `export MLFLOW_TRACKING_URI=http://host:5000`. Details: `docs/mlflow.md`.
+Local SQLite by default (`mlflow/mlflow.db`). UI: `mlflow ui --backend-store-uri sqlite:///mlflow/mlflow.db`. An unauthenticated `http://host:5000` example is for a trusted local network only; never use it for authenticated production tracking. Production MLflow requires HTTPS, an approved hostname, and persistent database-backed registry and durable artifact storage. Details: `docs/mlflow.md`.
 
 ## 11. Running the pipeline
 ```bash
@@ -69,14 +69,14 @@ Edit `params.yaml` (`train.models`, `selection`, ...) and `dvc repro`; only affe
 
 ## 13. Running FastAPI
 ```bash
-MODEL_SOURCE=local uvicorn api.main:app --port 8000     # http://localhost:8000/docs
+REQUIRE_API_KEY=false MODEL_SOURCE=local uvicorn api.main:app --port 8000     # explicit local-only unauthenticated mode
 ```
-Endpoints: `GET /`, `GET /health`, `GET /model-info`, `GET /metrics` (Prometheus), `POST /predict`. Set `API_KEY` to require header `X-API-Key` on `/predict`.
+Endpoints: `GET /`, `GET /health`, `GET /model-info`, `GET /metrics` (Prometheus), `POST /predict`. Authentication is required by default on `/predict`, `/model-info`, and `/metrics` using the `X-API-Key` header and `API_KEY` environment variable. `/health` remains unauthenticated for probes. Local unauthenticated development requires explicitly setting `REQUIRE_API_KEY=false`.
 
 ## 14. Docker
 ```bash
 docker build -t voltguard-api:local .          # needs dvc.lock from `dvc repro`
-docker run --rm -p 8000:8000 -e MODEL_SOURCE=local -v "$PWD/artifacts/models:/app/artifacts/models" voltguard-api:local
+docker run --rm -p 8000:8000 --env-file .env -e MODEL_SOURCE=local -v "$PWD/artifacts/models:/app/artifacts/models" voltguard-api:local
 docker compose up --build                       # uses .env
 ```
 On start the container runs `scripts/bootstrap_model.py` (DVC pull + checksum + alias check) and then Uvicorn. No credentials in the image. Details and the untested-build note: `docs/docker.md`.
@@ -85,20 +85,20 @@ On start the container runs `scripts/bootstrap_model.py` (DVC pull + checksum + 
 S3 bucket (`scripts/create_dvc_bucket.sh`), ECR repo (`scripts/create_ecr_repo.sh`), IAM policies, EC2 with an instance role and a minimal security group - all in `docs/aws-deployment.md`.
 
 ## 16. ECR deployment
-CI tags every image `voltguard-api:<git-sha>` and `:latest` and pushes to ECR; deploys use the SHA tag.
+The workflow builds commit-SHA and `latest` tags and deploys the commit-SHA tag. ECR is configured as **Immutable with exclusions**, with only `latest` excluded; commit-SHA tags cannot be overwritten.
 
 ## 17. EC2 deployment
-`scripts/deploy.sh` (run over SSH by CI): ECR login -> pull -> start container -> container pulls the model from the DVC remote -> verify `/health` and `/model-info` -> roll back on failure. Open port 22 to the deploy runner and port 8000 to API clients.
+`scripts/deploy.sh` and its `scripts/deploy_guards.sh` helper run on EC2 through Systems Manager: ECR login -> pull -> inspect the exact prior container -> start container -> container pulls the model from DVC -> verify `/health` and API-key-protected `/model-info` locally at `127.0.0.1` -> verify unauthenticated public HTTPS `/health` -> roll back when successful health data is invalid or the model version is wrong. If public HTTPS is unreachable after local checks pass, verification fails but leaves the locally healthy service running for investigation/retry. The workflow stores the API key temporarily as a Parameter Store `SecureString`; the SSM command payload contains only its parameter name. Runner cancellation or EC2 loss can interrupt cleanup; Docker administrators can inspect the running container environment. The workflow declares a `production` environment; required reviewers and branch restrictions must be configured in GitHub settings. Public clients must never send API keys over HTTP, and port 8000 must remain inaccessible from the public internet.
 
 ## 18. GitHub Actions CI/CD
-`ci.yml`: lint + tests + synthetic smoke pipeline on PRs/branches. `cd.yml` (main): test -> pull locked DVC outputs -> `dvc repro` + champion/manifest verification + quality gate + `dvc push` -> build and push an immutable commit-SHA image to ECR -> deploy to EC2 on host port 8000 -> verify health and model version, with rollback. See `docs/ci-cd.md` for GitHub secret names and AWS IAM details.
+`ci.yml`: lint + tests + synthetic smoke pipeline on PRs/branches. `cd.yml` (main): validate approved HTTPS settings and SSM instance readiness before tests/pipeline/build -> pull locked DVC outputs -> reuse a validated release or require approved persistent HTTPS MLflow before changed evaluation -> validate evaluation outputs and quality gate -> register only when DVC explicitly plans it -> build/publish commit-SHA image -> wait for the configured `production` environment -> deploy through SSM using a temporary SecureString API key -> verify authenticated model identity locally and public health over HTTPS. Invalid successful health data or wrong model version triggers rollback; unavailable public HTTPS after local verification leaves the healthy candidate running and reports verification unconfirmed. ECR tag immutability is configured with only `latest` excluded. GitHub IAM permissions, environment protection, and workflow execution remain to be verified before release.
 
 ## 19. Model retrieval design (Architecture: "Pull model artifact from DVC remote")
 `register_model` writes `manifest.json` (registry name/version/run/aliases/SHA-256). Both files are DVC outputs. The image ships `dvc.lock` (pin) + `.dvc/config`; at start `bootstrap_model.py` runs `dvc pull` for the two files, then `ModelService` verifies alias + checksum. No model filename is hard-coded.
 
 ## 20. API examples
 ```bash
-curl -X POST http://localhost:8000/predict -H 'Content-Type: application/json' -d @examples/predict_request.json
+printf 'X-API-Key: %s\n' "$API_KEY" | curl --header @- -X POST http://localhost:8000/predict -H 'Content-Type: application/json' -d @examples/predict_request.json  # local machine only; never send keys over public HTTP
 ```
 Response shape (**values below come from a model trained on SYNTHETIC test data, only to show the format - they are not results**):
 ```json
@@ -116,7 +116,7 @@ Response shape (**values below come from a model trained on SYNTHETIC test data,
 Invalid input (e.g. `voltage_mean: 9`) returns HTTP 422; a missing/failed model returns 503; a wrong `X-API-Key` returns 401. Feature names and ranges: `/docs` or `api/schemas.py`. `charge_duration` is optional (median-imputed).
 
 ## 21. Testing
-`pytest -q` -> 35 tests (data parsing/validation, features + leakage guards, split, selection rule, MLflow tracking + registry promotion, bundle prediction, API health/predict/validation/auth/metrics, loader checksum/alias). In my build environment: **35 passed, ruff clean**, plus a real `dvc repro` -> `dvc push` -> clean-directory `bootstrap_model.py` -> Uvicorn `/predict` run against a *local* DVC remote using synthetic data.
+Local validation on 2026-10-27: **62 tests passed** (17 upstream deprecation warnings), Ruff passed, and the synthetic smoke test registered only `VoltGuard-Test v1` in its temporary SQLite store. The locked v2 manifest/bundle verifier passed. `dvc status` and both DVC dry runs passed with a process-scoped `DVC_SITE_CACHE_DIR` under the temporary audit directory; the default global DVC site-cache database under `C:\ProgramData` returned SQLite `SQLITE_CANTOPEN`, so it was left untouched. `dvc metrics show` separately failed because DVC's Git backend could not resolve the OneDrive worktree path (`Access is denied`). A local Docker image built and passed inspection; a network-disabled container loaded the existing v2 artifacts from a read-only mount and passed authenticated prediction, unauthorized-request, invalid-input, health, model-info, and metrics checks. AWS credentials were unavailable, so remote S3 release state, ECR tag mutability/digest, GitHub environment protection, and EC2 deployment/health remain unverified. No cloud mutation or deployment was performed.
 
 ## 22. Results
 

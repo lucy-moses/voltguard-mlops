@@ -156,4 +156,3 @@ SOH is predicted with very high accuracy (R²=0.998), consistent with `discharge
 Sequence/rolling features with a stateful client, uncertainty intervals, more cells / CALCE / Oxford datasets, drift monitoring, HTTPS via ALB, GitHub OIDC instead of access keys, SSM-based deploy, blue/green deployment, remote MLflow with S3 artifact store.
 
 ---
-Viva preparation: `docs/viva_questions.md` (40 Q&A).
